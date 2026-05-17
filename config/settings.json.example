@@ -1,0 +1,150 @@
+{
+    "symbol": "XAUUSD",
+    "timeframe": 16385,
+    "timeframe_name": "H1",
+    "analysis_timeframes": [
+        {
+            "name": "M5",
+            "value": 5,
+            "role": "scalp",
+            "weight": 0.85
+        },
+        {
+            "name": "M15",
+            "value": 15,
+            "role": "entry",
+            "weight": 1.0
+        },
+        {
+            "name": "H1",
+            "value": 16385,
+            "role": "signal",
+            "weight": 1.25
+        },
+        {
+            "name": "H4",
+            "value": 16388,
+            "role": "trend",
+            "weight": 1.5
+        }
+    ],
+    "higher_timeframe": 16388,
+    "higher_timeframe_name": "H4",
+    "lot_size": 0.01,
+    "stop_loss_points": 500,
+    "take_profit_points": 1000,
+    "point_value": 0.01,
+    "entry_tolerance_points": 120,
+    "setup_confidence_threshold": 0.62,
+    "confidence_threshold": 0.75,
+    "trigger_confidence_threshold": 0.82,
+    "sure_shot_threshold": 0.88,
+    "signal_cooldown_minutes": 30,
+    "max_signal_age_minutes": 180,
+    "setup_expiry_minutes": 60,
+    "discord_webhook_url": "YOUR_DISCORD_WEBHOOK_URL_HERE",
+    "discord_bot_token": "YOUR_DISCORD_BOT_TOKEN_HERE",
+    "mt5_login": "YOUR_MT5_LOGIN",
+    "mt5_password": "YOUR_MT5_PASSWORD",
+    "mt5_server": "YOUR_MT5_SERVER",
+    "trading_enabled": false,
+    "news_currencies": [
+        "USD"
+    ],
+    "news_confidence_penalty": 0.08,
+    "market_regime": {
+        "name": "2026_structural_bull",
+        "description": "Gold is treated as a high-volatility structural bull market unless higher timeframes reject it.",
+        "bull_bias_boost": 0.05,
+        "counter_trend_sell_penalty": 0.04,
+        "high_atr_daily_threshold": 40,
+        "reduce_size_above_atr": true,
+        "base_case": [
+            4000,
+            4500
+        ],
+        "bull_case": [
+            4500,
+            5200
+        ],
+        "bear_case": [
+            3500,
+            4000
+        ]
+    },
+    "session_filter": {
+        "golden_window_utc": [
+            12,
+            16
+        ],
+        "asian_session_utc": [
+            22,
+            7
+        ],
+        "golden_window_boost": 0.08,
+        "asian_scalp_penalty": 0.1,
+        "strict_session_trading": true
+    },
+    "risk": {
+        "risk_per_trade_pct": 1.0,
+        "max_risk_per_trade_pct": 2.0,
+        "two_loss_rule_enabled": true,
+        "atr_stop_multiplier_scalp": 1.0,
+        "atr_stop_multiplier_day": 1.35,
+        "atr_stop_multiplier_swing": 1.7,
+        "atr_take_profit_multiplier_scalp": 1.2,
+        "atr_take_profit_multiplier_day": 1.8,
+        "atr_take_profit_multiplier_swing": 2.5,
+        "reduce_lot_when_atr_above": 40,
+        "lot_reduction_factor": 0.5
+    },
+    "params": {
+        "rsi_buy_threshold": 37.6,
+        "rsi_sell_threshold": 60,
+        "ema_period": 200,
+        "ema_periods": [
+            9,
+            21,
+            50,
+            200
+        ],
+        "macd_params": [12, 26, 9],
+        "fib_levels": {
+            "anchor_low": 4402,
+            "anchor_high": 5598,
+            "targets": {
+                "upper_resistance": 5342,
+                "primary_support": 5141,
+                "psych_zone": 5000,
+                "breakout_trigger": 4760,
+                "key_support_s1": 4645
+            }
+        },
+        "year_end_targets": {
+            "jp_morgan": 6300,
+            "ubs": 6200,
+            "goldman_sachs": 5400
+        },
+        "atr_period": 14,
+        "risk_reward_ratio": 1.8,
+        "bollinger_period": 20,
+        "bollinger_std": 2.0,
+        "volume_spike_multiplier": 1.5,
+        "scalp_target_points": [
+            500,
+            1500
+        ],
+        "psychological_level_step": 50
+    },
+    "learning_rate": 0.05,
+    "technique_weights": {
+        "FVG": 0.2,
+        "InstitutionalIndicators": 0.2,
+        "MarketStructure": 0.2,
+        "OrderBlock": 0.2,
+        "PricePattern": 0.2,
+        "TrendLine": 0.2,
+        "EMA_RSI": 0.2,
+        "SupportResistance": 0.2
+    }
+}

@@ -1,0 +1,10 @@
+{
+    "EMA_RSI": 1.0,
+    "FVG": 1.0,
+    "InstitutionalIndicators": 1.0,
+    "MarketStructure": 1.0,
+    "OrderBlock": 1.0,
+    "PricePattern": 1.0,
+    "TrendLine": 1.0,
+    "SupportResistance": 1.0
+}
