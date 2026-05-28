@@ -59,8 +59,9 @@ class MT5Client:
 
 
 class NewsFetcher:
-    def get_high_impact_news(self):
+    def get_high_impact_news(self, *args, **kwargs):
         return []
+
 
 
 class DiscordBot:

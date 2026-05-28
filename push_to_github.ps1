@@ -1,6 +1,7 @@
 # Push GoldAI_Project to https://github.com/golfyyy/My_MiniProject
-# Run in PowerShell:  cd C:\Users\USER\GoldAI_Project
-#                     .\push_to_github.ps1
+# Run in PowerShell:  cd C:\Users\USER 
+.\push_to_github.ps1\GoldAI_Project
+#                     
 
 $ErrorActionPreference = "Stop"
 Set-Location $PSScriptRoot

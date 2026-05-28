@@ -1,38 +1,43 @@
 import discord
 from discord.ext import commands
 import requests
+import logging
+from typing import Dict, List, Any, Optional, Tuple
+
+logger = logging.getLogger("GoldAI.DiscordBot")
+
 
 class SignalFormatter:
     """เปลี่ยนข้อมูล Signal ให้เป็นรูปแบบการ์ดที่สวยงามใน Discord"""
     @staticmethod
-    def _fmt_price(value):
+    def _fmt_price(value: Optional[float]) -> str:
         return f"${float(value):.2f}" if value is not None else "N/A"
 
     @staticmethod
-    def _limit(text, length=1000):
+    def _limit(text: Any, length: int = 1000) -> str:
         text = str(text or "N/A")
         return text if len(text) <= length else text[: length - 3] + "..."
 
     @staticmethod
     def format_signal(
-        symbol,
-        signal,
-        entry,
-        sl,
-        tp,
-        reasoning,
-        confidence="Medium",
-        news="No major news",
-        mode="ENTRY_TRIGGER",
-        timeframe="N/A",
-        current_price=None,
-        ideal_entry=None,
-        entry_zone=None,
-        hold_recommendation="N/A",
-        risk_plan=None,
-        technique_summary="N/A",
-    ):
-        # สร้าง Embed แบบดิบเพื่อใช้กับ Webhook (เนื่องจาก Webhook ไม่รองรับ discord.Embed object โดยตรง)
+        symbol: str,
+        signal: str,
+        entry: Optional[float],
+        sl: Optional[float],
+        tp: Optional[float],
+        reasoning: str,
+        confidence: str = "Medium",
+        news: str = "No major news",
+        mode: str = "ENTRY_TRIGGER",
+        timeframe: str = "N/A",
+        current_price: Optional[float] = None,
+        ideal_entry: Optional[float] = None,
+        entry_zone: Optional[Tuple[float, float]] = None,
+        hold_recommendation: str = "N/A",
+        risk_plan: Optional[Any] = None,
+        technique_summary: str = "N/A",
+    ) -> Dict[str, Any]:
+        # สร้าง Embed แบบดิบเพื่อใช้กับ Webhook
         is_buy = "BUY" in signal
         is_sell = "SELL" in signal
         direction_text = "🟢 BUY" if is_buy else "🔴 SELL" if is_sell else "🟡 WAIT"
@@ -80,19 +85,31 @@ class SignalFormatter:
         }
         return embed
 
+
 class DiscordBot:
     """จัดการการส่งข้อความและคำสั่งใน Discord"""
-    def __init__(self, token, webhook_url):
-        self.token = token
-        self.webhook_url = webhook_url
-        self.intents = discord.Intents.default()
+    def __init__(self, token: str, webhook_url: str) -> None:
+        self.token: str = token
+        self.webhook_url: str = webhook_url
+        self.intents: discord.Intents = discord.Intents.default()
         self.intents.message_content = True
-        self.bot = commands.Bot(command_prefix='!', intents=self.intents)
+        self.bot: commands.Bot = commands.Bot(command_prefix='!', intents=self.intents)
 
-    def send_signal_card(self, symbol, signal, entry, sl, tp, reasoning, confidence="Medium", news="No major news", **kwargs):
+    def send_signal_card(
+        self,
+        symbol: str,
+        signal: str,
+        entry: Optional[float],
+        sl: Optional[float],
+        tp: Optional[float],
+        reasoning: str,
+        confidence: str = "Medium",
+        news: str = "No major news",
+        **kwargs: Any
+    ) -> bool:
         """ส่งสัญญาณการเทรดในรูปแบบ Embed Card"""
         if not self.webhook_url:
-            print("Discord webhook is not configured; skipping signal notification.")
+            logger.warning("Discord webhook is not configured; skipping signal notification.")
             return False
 
         embed_data = SignalFormatter.format_signal(symbol, signal, entry, sl, tp, reasoning, confidence, news, **kwargs)
@@ -101,18 +118,19 @@ class DiscordBot:
         try:
             response = requests.post(self.webhook_url, json=payload, timeout=10)
             if response.status_code != 204:
-                print(f"❌ Discord Webhook Error: {response.status_code}")
+                logger.error(f"Discord Webhook Error: {response.status_code}")
                 return False
             return True
         except Exception as e:
-            print(f"❌ Discord Webhook Exception: {e}")
+            logger.exception(f"Discord Webhook Exception: {e}")
             return False
 
-    async def start(self):
+    async def start(self) -> None:
         if not self.token:
-            print("Discord bot token is not configured; command bot is disabled.")
+            logger.info("Discord bot token is not configured; command bot is disabled.")
             return
         await self.bot.start(self.token)
 
-    def get_bot_instance(self):
+    def get_bot_instance(self) -> commands.Bot:
         return self.bot
+

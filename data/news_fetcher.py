@@ -1,62 +1,72 @@
 import logging
 import requests
-from bs4 import BeautifulSoup
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+from typing import List, Dict, Any
 
 logger = logging.getLogger("GoldAI.NewsFetcher")
 
 
 class NewsFetcher:
-    """ดึงข้อมูลข่าวสารจาก Forex Factory"""
-    def __init__(self):
-        self.url = "https://www.forexfactory.com/calendar"
-        self.headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
-        }
-        self._cache_until = datetime.min
-        self._cache = []
+    """ดึงข้อมูลข่าวสารจาก Forex Factory API (JSON feed)"""
+    def __init__(self) -> None:
+        self.url: str = "https://nfs.faireconomy.media/ff_calendar_thisweek.json"
+        self._cache_until: datetime = datetime.min.replace(tzinfo=timezone.utc)
+        self._cache: List[Dict[str, Any]] = []
 
-    def get_high_impact_news(self):
+    def get_high_impact_news(self, lookback_mins: float = 30.0, lookahead_mins: float = 90.0) -> List[Dict[str, Any]]:
         """
-        ดึงข่าวที่มีผลกระทบสูง (High Impact/Red Folder)
+        ดึงข่าวที่มีผลกระทบสูง (High Impact) ที่อยู่ในช่วงเวลาพิจารณา
         """
-        if datetime.now() < self._cache_until:
-            return self._cache
+        now = datetime.now(timezone.utc)
 
-        try:
-            response = requests.get(self.url, headers=self.headers, timeout=10)
-            if response.status_code != 200:
-                return self._cache
+        if now < self._cache_until:
+            all_events = self._cache
+        else:
+            try:
+                response = requests.get(self.url, timeout=10)
+                if response.status_code == 200:
+                    self._cache = response.json()
+                    self._cache_until = now + timedelta(minutes=5)
+                    all_events = self._cache
+                else:
+                    logger.warning("News fetch failed with status %s, using cache", response.status_code)
+                    all_events = self._cache
+            except Exception as e:
+                logger.warning("News fetch failed, using cache if available: %s", e)
+                all_events = self._cache
 
-            soup = BeautifulSoup(response.content, 'html.parser')
-            high_impact_events = []
+        high_impact_events: List[Dict[str, Any]] = []
+        for event in all_events:
+            # Check impact
+            impact = event.get("impact", "")
+            if impact.lower() != "high":
+                continue
 
-            # ค้นหาแถวของข่าว
-            events = soup.find_all('tr', class_='calendar__row')
-            for event in events:
-                # ตรวจสอบ impact cell
-                impact_cell = event.find('td', class_='calendar__impact')
-                impact_class = " ".join(impact_cell.get("class", [])) if impact_cell else ""
-                impact_text = impact_cell.get_text(" ", strip=True).lower() if impact_cell else ""
-                title_text = " ".join(tag.get("title", "") for tag in impact_cell.find_all(True)) if impact_cell else ""
-                is_high_impact = "high" in impact_class.lower() or "high" in impact_text or "high" in title_text.lower()
-                if impact_cell and is_high_impact:
-                    currency_cell = event.find('td', class_='calendar__currency')
-                    event_cell = event.find('td', class_='calendar__event')
-                    time_cell = event.find('td', class_='calendar__time')
-                    currency = currency_cell.text.strip() if currency_cell else "N/A"
-                    event_name = event_cell.text.strip() if event_cell else "Unknown event"
-                    time_val = time_cell.text.strip() if time_cell else "N/A"
-                    high_impact_events.append({
-                        "currency": currency,
-                        "event": event_name,
-                        "time": time_val,
-                        "impact": "High"
-                    })
+            # Parse event date (e.g. "2026-05-26T21:30:00-04:00")
+            date_str = event.get("date")
+            if not date_str:
+                continue
 
-            self._cache = high_impact_events
-            self._cache_until = datetime.now() + timedelta(minutes=5)
-            return high_impact_events
-        except Exception as e:
-            logger.warning("News fetch failed, using cache if available: %s", e)
-            return self._cache
+            try:
+                event_date = datetime.fromisoformat(date_str)
+                if event_date.tzinfo is None:
+                    event_date = event_date.replace(tzinfo=timezone.utc)
+                else:
+                    event_date = event_date.astimezone(timezone.utc)
+            except ValueError:
+                continue
+
+            # Check if event is within lookback and lookahead window
+            start_window = now - timedelta(minutes=lookback_mins)
+            end_window = now + timedelta(minutes=lookahead_mins)
+
+            if start_window <= event_date <= end_window:
+                high_impact_events.append({
+                    "currency": event.get("country", "N/A"),
+                    "event": event.get("title", "Unknown event"),
+                    "time": event_date.strftime("%Y-%m-%d %H:%M:%S UTC"),
+                    "impact": "High"
+                })
+
+        return high_impact_events
+

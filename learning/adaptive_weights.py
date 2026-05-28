@@ -2,7 +2,8 @@ import json
 import logging
 import os
 from collections import defaultdict
-from datetime import datetime
+from datetime import datetime, timezone
+from typing import Dict, List, Any, Optional
 
 from .database import SignalDatabase
 
@@ -14,20 +15,20 @@ class AdaptiveWeighting:
 
     def __init__(
         self,
-        storage_path="data/self_generated_data.db",
-        weights_path="data/technique_weights.json",
-        signal_db_path="data/signals_history.db",
-        initial_weights=None,
-    ):
-        self.storage_path = storage_path
-        self.weights_path = weights_path
-        self.db = SignalDatabase(signal_db_path)
-        self.initial_weights = initial_weights or {}
-        self.technique_weights = defaultdict(lambda: 1.0)
-        self.performance_history = defaultdict(list)
+        storage_path: str = "data/self_generated_data.db",
+        weights_path: str = "data/technique_weights.json",
+        signal_db_path: str = "data/signals_history.db",
+        initial_weights: Optional[Dict[str, float]] = None,
+    ) -> None:
+        self.storage_path: str = storage_path
+        self.weights_path: str = weights_path
+        self.db: SignalDatabase = SignalDatabase(signal_db_path)
+        self.initial_weights: Dict[str, float] = initial_weights or {}
+        self.technique_weights: Dict[str, float] = defaultdict(lambda: 1.0)
+        self.performance_history: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
         self._load_weights()
 
-    def _load_weights(self):
+    def _load_weights(self) -> None:
         if os.path.exists(self.weights_path):
             try:
                 with open(self.weights_path, "r", encoding="utf-8") as f:
@@ -42,7 +43,7 @@ class AdaptiveWeighting:
             self.technique_weights = defaultdict(float, self.initial_weights)
             self._save_weights()
 
-    def _save_weights(self):
+    def _save_weights(self) -> None:
         try:
             weights_dir = os.path.dirname(self.weights_path)
             if weights_dir:
@@ -52,7 +53,7 @@ class AdaptiveWeighting:
         except Exception as e:
             logger.error("Failed to save weights to %s: %s", self.weights_path, e)
 
-    def update_performance(self, technique, signal_direction, outcome):
+    def update_performance(self, technique: str, signal_direction: str, outcome: float) -> None:
         """
         Update performance for a technique based on signal outcome.
         outcome: 1 for win (TP), -1 for loss (SL), 0 for breakeven/unknown.
@@ -61,14 +62,14 @@ class AdaptiveWeighting:
             {
                 "direction": signal_direction,
                 "outcome": outcome,
-                "timestamp": datetime.now(),
+                "timestamp": datetime.now(timezone.utc),
             }
         )
         if len(self.performance_history[technique]) > 50:
             self.performance_history[technique] = self.performance_history[technique][-50:]
         self._recalculate_weights()
 
-    def _recalculate_weights(self):
+    def _recalculate_weights(self) -> None:
         """Recalculate weights using a sliding window win rate with smoothing."""
         for tech, history in self.performance_history.items():
             if not history:
@@ -93,8 +94,9 @@ class AdaptiveWeighting:
 
         self._save_weights()
 
-    def get_weight(self, technique):
+    def get_weight(self, technique: str) -> float:
         return self.technique_weights.get(technique, 1.0)
 
-    def get_all_weights(self):
+    def get_all_weights(self) -> Dict[str, float]:
         return dict(self.technique_weights)
+

@@ -1,21 +1,23 @@
 import MetaTrader5 as mt5
 import pandas as pd
 import logging
+from typing import Optional, Tuple
 
 logger = logging.getLogger("GoldAI.MT5Client")
+
 
 class MT5Client:
     """
     จัดการการเชื่อมต่อและดึงข้อมูลจาก MetaTrader 5
     เวอร์ชัน: Signal-Only (Data Provider)
     """
-    def __init__(self, symbol, login=None, password=None, server=None):
-        self.symbol = symbol
-        self.login = login
-        self.password = password
-        self.server = server
+    def __init__(self, symbol: str, login: Optional[int] = None, password: Optional[str] = None, server: Optional[str] = None) -> None:
+        self.symbol: str = symbol
+        self.login: Optional[int] = login
+        self.password: Optional[str] = password
+        self.server: Optional[str] = server
 
-    def connect(self):
+    def connect(self) -> bool:
         if self.login and self.password:
             initialized = mt5.initialize(login=self.login, password=self.password, server=self.server)
         else:
@@ -31,12 +33,12 @@ class MT5Client:
         logger.info(f"Connected to MT5 successfully for {self.symbol}")
         return True
 
-    def ensure_connection(self):
+    def ensure_connection(self) -> bool:
         """ตรวจสอบการเชื่อมต่อและลอง Reconnect หากหลุด"""
         tick = mt5.symbol_info_tick(self.symbol)
         if tick is not None:
             return True
-        
+
         logger.warning("MT5 connection lost. Attempting to reconnect...")
         for i in range(3):
             try:
@@ -45,11 +47,11 @@ class MT5Client:
                     return True
             except Exception as e:
                 logger.error(f"Reconnect attempt {i+1} failed: {e}")
-        
+
         logger.critical("Could not restore MT5 connection after 3 attempts.")
         return False
 
-    def get_rates(self, timeframe, count=300):
+    def get_rates(self, timeframe: int, count: int = 300) -> Optional[pd.DataFrame]:
         """ดึงข้อมูลแท่งเทียนย้อนหลัง"""
         rates = mt5.copy_rates_from_pos(self.symbol, timeframe, 0, count)
         if rates is None or len(rates) == 0:
@@ -59,7 +61,7 @@ class MT5Client:
         df['time'] = pd.to_datetime(df['time'], unit='s')
         return df
 
-    def get_current_price(self):
+    def get_current_price(self) -> Optional[Tuple[float, float]]:
         """ดึงราคา Ask/Bid ปัจจุบัน"""
         tick = mt5.symbol_info_tick(self.symbol)
         if tick is None:
@@ -67,12 +69,12 @@ class MT5Client:
             return None
         return tick.ask, tick.bid
 
-    def get_point(self):
+    def get_point(self) -> Optional[float]:
         symbol_info = mt5.symbol_info(self.symbol)
         if symbol_info is None:
             return None
         return float(symbol_info.point)
 
-    def shutdown(self):
+    def shutdown(self) -> None:
         logger.info("Shutting down MT5 connection")
         mt5.shutdown()

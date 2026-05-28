@@ -2,19 +2,20 @@ import pandas as pd
 import numpy as np
 from datetime import datetime, timezone
 from abc import ABC, abstractmethod
+from typing import Dict, List, Any, Optional, Tuple, Set
 from .chart_patterns import ChartPatternRecognizer
 
-DEFAULT_TIMEFRAME_NAME = "H1"
+DEFAULT_TIMEFRAME_NAME: str = "H1"
 
 
 class BaseStrategy(ABC):
     """คลาสพื้นฐานสำหรับทุกกลยุทธ์การเทรด"""
 
-    def __init__(self, params):
-        self.params = params
+    def __init__(self, params: Dict[str, Any]) -> None:
+        self.params: Dict[str, Any] = params
 
     @abstractmethod
-    def analyze(self, df, timeframe_name=None, role="signal"):
+    def analyze(self, df: pd.DataFrame, timeframe_name: Optional[str] = None, role: str = "signal") -> Dict[str, Any]:
         """Return a normalized analysis result."""
         pass
 
@@ -22,21 +23,13 @@ class BaseStrategy(ABC):
 class HybridStrategy(BaseStrategy):
     """EMA/RSI + SMC + Trend Line + Support/Resistance + Price Pattern ensemble."""
 
-    def __init__(self, params):
+    def __init__(self, params: Dict[str, Any]) -> None:
         super().__init__(params)
-        self.chart_patterns = ChartPatternRecognizer(params.get("atr_period", 14))
-        self.technique_weights = {}
+        self.chart_patterns: ChartPatternRecognizer = ChartPatternRecognizer(params.get("atr_period", 14))
+        self.technique_weights: Dict[str, float] = {}
 
-    def set_technique_weights(self, technique_weights):
-        self.technique_weights = technique_weights or {}
-
-    @staticmethod
-    def _clip_confidence(value):
-        return float(max(0.0, min(0.95, value)))
-
-    def _technique_weight(self, technique_name, role):
-        base = float(self.technique_weights.get(technique_name, 1.0))
-        role_boosts = {
+        # --- Parameters & Constants Configuration ---
+        self.role_boosts: Dict[str, Dict[str, float]] = params.get("role_boosts", {
             "entry": {
                 "SMC": 1.25,
                 "SupplyDemand": 1.3,
@@ -85,10 +78,65 @@ class HybridStrategy(BaseStrategy):
                 "EMA_RSI": 1.2,
                 "InstitutionalIndicators": 1.2,
             },
-        }
-        return base * role_boosts.get(role, role_boosts["signal"]).get(technique_name, 1.0)
+        })
 
-    def calculate_rsi(self, prices, period=14):
+        # Tolerance multipliers
+        self.pullback_atr_multiplier: float = float(params.get("pullback_atr_multiplier", 0.5))
+        self.pullback_pct_multiplier: float = float(params.get("pullback_pct_multiplier", 0.001))
+
+        # Institutional Indicator Confidence Configuration
+        self.inst_bull_base_confidence: float = float(params.get("inst_bull_base_confidence", 0.58))
+        self.inst_bear_base_confidence: float = float(params.get("inst_bear_base_confidence", 0.56))
+        self.inst_volume_spike_boost: float = float(params.get("inst_volume_spike_boost", 0.08))
+        self.inst_volatility_expanding_boost: float = float(params.get("inst_volatility_expanding_boost", 0.05))
+        self.inst_bear_volatility_boost: float = float(params.get("inst_bear_volatility_boost", 0.04))
+        self.bollinger_volatility_threshold: float = float(params.get("bollinger_volatility_threshold", 0.008))
+
+        # EMA/RSI Confidence Configuration
+        self.ema_rsi_bull_regime_confidence: float = float(params.get("ema_rsi_bull_regime_confidence", 0.78))
+        self.ema_rsi_base_bull_confidence: float = float(params.get("ema_rsi_base_bull_confidence", 0.74))
+        self.ema_rsi_approaching_bull_confidence: float = float(params.get("ema_rsi_approaching_bull_confidence", 0.56))
+        self.ema_rsi_bear_regime_confidence: float = float(params.get("ema_rsi_bear_regime_confidence", 0.58))
+        self.ema_rsi_base_bear_confidence: float = float(params.get("ema_rsi_base_bear_confidence", 0.74))
+        self.ema_rsi_approaching_bear_confidence: float = float(params.get("ema_rsi_approaching_bear_confidence", 0.56))
+
+        # Combine parameters
+        self.comb_base_confidence: float = float(params.get("comb_base_confidence", 0.45))
+        self.comb_alignment_weight: float = float(params.get("comb_alignment_weight", 0.35))
+        self.comb_strength_weight: float = float(params.get("comb_strength_weight", 0.18))
+        self.comb_conflict_max_penalty: float = float(params.get("comb_conflict_max_penalty", 0.2))
+        self.comb_conflict_ratio_multiplier: float = float(params.get("comb_conflict_ratio_multiplier", 0.25))
+
+        # MACD Confirmation boost
+        self.macd_confirm_boost: float = float(params.get("macd_confirm_boost", 0.05))
+
+        # Fibonacci strategic confidences
+        self.fib_primary_support_confidence: float = float(params.get("fib_primary_support_confidence", 0.68))
+        self.fib_psych_zone_confidence: float = float(params.get("fib_psych_zone_confidence", 0.65))
+        self.fib_key_support_confidence: float = float(params.get("fib_key_support_confidence", 0.72))
+        self.fib_breakout_confidence: float = float(params.get("fib_breakout_confidence", 0.62))
+        self.fib_proximity_tolerance_pct: float = float(params.get("fib_proximity_tolerance_pct", 0.0015))
+
+        # Hold Recommendation parameters
+        self.hold_scalp_proximity_pct: float = float(params.get("hold_scalp_proximity_pct", 0.08))
+        self.hold_atr_volatility_pct: float = float(params.get("hold_atr_volatility_pct", 0.35))
+
+        # Entry Zone configuration
+        self.entry_zone_atr_multiplier: float = float(params.get("entry_zone_atr_multiplier", 0.25))
+        self.entry_zone_min_points: float = float(params.get("entry_zone_min_points", 50))
+
+    def set_technique_weights(self, technique_weights: Dict[str, float]) -> None:
+        self.technique_weights = technique_weights or {}
+
+    @staticmethod
+    def _clip_confidence(value: float) -> float:
+        return float(max(0.0, min(0.95, value)))
+
+    def _technique_weight(self, technique_name: str, role: str) -> float:
+        base = float(self.technique_weights.get(technique_name, 1.0))
+        return base * self.role_boosts.get(role, self.role_boosts["signal"]).get(technique_name, 1.0)
+
+    def calculate_rsi(self, prices: np.ndarray, period: int = 14) -> pd.Series:
         deltas = pd.Series(prices).diff()
         gain = (deltas.where(deltas > 0, 0)).rolling(window=period).mean()
         loss = (-deltas.where(deltas < 0, 0)).rolling(window=period).mean()
@@ -96,10 +144,10 @@ class HybridStrategy(BaseStrategy):
         rsi = 100 - (100 / (1 + rs))
         return rsi.fillna(50)
 
-    def calculate_ema(self, prices, period):
+    def calculate_ema(self, prices: np.ndarray, period: int) -> pd.Series:
         return pd.Series(prices).ewm(span=period, adjust=False).mean()
 
-    def calculate_bollinger(self, prices, period=20, std_multiplier=2.0):
+    def calculate_bollinger(self, prices: np.ndarray, period: int = 20, std_multiplier: float = 2.0) -> Tuple[pd.Series, pd.Series, pd.Series]:
         series = pd.Series(prices)
         mid = series.rolling(window=period).mean()
         std = series.rolling(window=period).std()
@@ -107,7 +155,7 @@ class HybridStrategy(BaseStrategy):
         lower = mid - std * std_multiplier
         return mid, upper, lower
 
-    def calculate_atr(self, df, period=14):
+    def calculate_atr(self, df: pd.DataFrame, period: int = 14) -> float:
         if len(df) < period + 2:
             return 0.0
         high = df["high"].astype(float)
@@ -118,7 +166,7 @@ class HybridStrategy(BaseStrategy):
         atr = tr.rolling(window=period).mean().iloc[-1]
         return float(atr) if np.isfinite(atr) else 0.0
 
-    def calculate_vwap(self, df):
+    def calculate_vwap(self, df: pd.DataFrame) -> float:
         volume_col = "tick_volume" if "tick_volume" in df.columns else "volume"
         if volume_col not in df.columns:
             return float(df["close"].astype(float).iloc[-1])
@@ -128,14 +176,14 @@ class HybridStrategy(BaseStrategy):
         value = vwap.iloc[-1]
         return float(value) if np.isfinite(value) else float(df["close"].astype(float).iloc[-1])
 
-    def _strategy_style(self, timeframe_name, role):
+    def _strategy_style(self, timeframe_name: str, role: str) -> str:
         if role == "scalp" or timeframe_name in ("M1", "M5", "M15"):
             return "scalp"
         if role == "trend" or timeframe_name in ("H4", "D1", "W1"):
             return "swing"
         return "day"
 
-    def _session_context(self, role):
+    def _session_context(self, role: str) -> Dict[str, Any]:
         session_cfg = self.params.get("session_filter", {})
         now_utc = datetime.now(timezone.utc)
         hour = now_utc.hour + now_utc.minute / 60
@@ -157,7 +205,7 @@ class HybridStrategy(BaseStrategy):
             }
         return {"name": "Normal session", "confidence_adjustment": 0.0, "reason": "No special session filter"}
 
-    def _volume_spike(self, df):
+    def _volume_spike(self, df: pd.DataFrame) -> Tuple[bool, float]:
         volume_col = "tick_volume" if "tick_volume" in df.columns else "volume"
         if volume_col not in df.columns or len(df) < 5:
             return False, 1.0
@@ -167,7 +215,7 @@ class HybridStrategy(BaseStrategy):
         ratio = current / max(recent_avg, 1.0)
         return ratio >= float(self.params.get("volume_spike_multiplier", 1.5)), ratio
 
-    def _institutional_indicator_result(self, df):
+    def _institutional_indicator_result(self, df: pd.DataFrame) -> Dict[str, Any]:
         close_prices = df["close"].astype(float).values
         current_price = float(close_prices[-1])
         ema_periods = self.params.get("ema_periods", [9, 21, 50, 200])
@@ -193,10 +241,10 @@ class HybridStrategy(BaseStrategy):
 
         bullish_stack = current_price > vwap and ema9 > ema21 > ema50 > ema200
         bearish_stack = current_price < vwap and ema9 < ema21 < ema50 < ema200
-        volatility_expanding = band_width > 0.008
+        volatility_expanding = band_width > self.bollinger_volatility_threshold
 
         if bullish_stack:
-            confidence = 0.58 + (0.08 if volume_spike else 0.0) + (0.05 if volatility_expanding else 0.0)
+            confidence = self.inst_bull_base_confidence + (self.inst_volume_spike_boost if volume_spike else 0.0) + (self.inst_volatility_expanding_boost if volatility_expanding else 0.0)
             entry = max(vwap, min(ema21, current_price))
             return {
                 "pattern": "InstitutionalIndicators",
@@ -220,7 +268,7 @@ class HybridStrategy(BaseStrategy):
             }
 
         if bearish_stack:
-            confidence = 0.56 + (0.08 if volume_spike else 0.0) + (0.04 if volatility_expanding else 0.0)
+            confidence = self.inst_bear_base_confidence + (self.inst_volume_spike_boost if volume_spike else 0.0) + (self.inst_bear_volatility_boost if volatility_expanding else 0.0)
             entry = min(vwap, max(ema21, current_price))
             return {
                 "pattern": "InstitutionalIndicators",
@@ -261,7 +309,7 @@ class HybridStrategy(BaseStrategy):
             "reasoning": "EMA/VWAP/Bollinger/Volume do not align cleanly",
         }
 
-    def _ema_rsi_result(self, df):
+    def _ema_rsi_result(self, df: pd.DataFrame) -> Dict[str, Any]:
         close_prices = df["close"].astype(float).values
         current_price = float(close_prices[-1])
         ema_period = self.params.get("ema_period", 200)
@@ -270,7 +318,7 @@ class HybridStrategy(BaseStrategy):
         ema = float(emas.get(ema_period, self.calculate_ema(close_prices, ema_period).iloc[-1]))
         rsi = float(self.calculate_rsi(close_prices).iloc[-1])
         atr = self.calculate_atr(df, self.params.get("atr_period", 14))
-        pullback_tolerance = max(atr * 0.5, current_price * 0.001)
+        pullback_tolerance = max(atr * self.pullback_atr_multiplier, current_price * self.pullback_pct_multiplier)
         bull_regime = self.params.get("market_regime", {}).get("name") == "2026_structural_bull"
 
         result = {
@@ -286,7 +334,7 @@ class HybridStrategy(BaseStrategy):
             if rsi <= self.params.get("rsi_buy_threshold", 40):
                 result.update(
                     {
-                        "confidence": 0.78 if bull_regime else 0.74,
+                        "confidence": self.ema_rsi_bull_regime_confidence if bull_regime else self.ema_rsi_base_bull_confidence,
                         "bias": "BUY",
                         "entry": max(ema, current_price - pullback_tolerance),
                         "reasoning": f"Structural bull pullback: price above EMA {ema_period} and RSI {rsi:.2f}",
@@ -295,7 +343,7 @@ class HybridStrategy(BaseStrategy):
             elif rsi <= self.params.get("rsi_buy_threshold", 40) + 6:
                 result.update(
                     {
-                        "confidence": 0.56,
+                        "confidence": self.ema_rsi_approaching_bull_confidence,
                         "bias": "BUY",
                         "entry": max(ema, current_price - pullback_tolerance),
                         "reasoning": f"Bullish trend; RSI {rsi:.2f} is approaching buy pullback zone",
@@ -305,7 +353,7 @@ class HybridStrategy(BaseStrategy):
             if rsi >= max(self.params.get("rsi_sell_threshold", 60), 70 if bull_regime else 60):
                 result.update(
                     {
-                        "confidence": 0.58 if bull_regime else 0.74,
+                        "confidence": self.ema_rsi_bear_regime_confidence if bull_regime else self.ema_rsi_base_bear_confidence,
                         "bias": "SELL",
                         "entry": min(ema, current_price + pullback_tolerance),
                         "reasoning": f"Countertrend warning: price below EMA {ema_period} and RSI {rsi:.2f} is extended",
@@ -314,7 +362,7 @@ class HybridStrategy(BaseStrategy):
             elif rsi >= self.params.get("rsi_sell_threshold", 60) - 6:
                 result.update(
                     {
-                        "confidence": 0.56,
+                        "confidence": self.ema_rsi_approaching_bear_confidence,
                         "bias": "SELL",
                         "entry": min(ema, current_price + pullback_tolerance),
                         "reasoning": f"Bearish trend; RSI {rsi:.2f} is approaching sell pullback zone",
@@ -323,7 +371,15 @@ class HybridStrategy(BaseStrategy):
 
         return result
 
-    def _apply_context_adjustments(self, combined, current_price, atr, role, timeframe_name, indicator_result):
+    def _apply_context_adjustments(
+        self,
+        combined: Dict[str, Any],
+        current_price: float,
+        atr: float,
+        role: str,
+        timeframe_name: str,
+        indicator_result: Dict[str, Any]
+    ) -> Dict[str, Any]:
         confidence = float(combined["confidence"])
         direction = combined["direction"]
         session_context = self._session_context(role)
@@ -350,10 +406,10 @@ class HybridStrategy(BaseStrategy):
         combined["context_summary"] = f"{session_context['name']} | " + " | ".join(context_notes)
         return combined
 
-    def _combine_techniques(self, current_price, atr, technique_results, role):
+    def _combine_techniques(self, current_price: float, atr: float, technique_results: Dict[str, Dict[str, Any]], role: str) -> Dict[str, Any]:
         scores = {"BUY": 0.0, "SELL": 0.0}
         total_signal_weight = 0.0
-        entry_candidates = {"BUY": [], "SELL": []}
+        entry_candidates: Dict[str, List[Tuple[float, float]]] = {"BUY": [], "SELL": []}
         active_reasons = []
         summary_parts = []
 
@@ -392,8 +448,8 @@ class HybridStrategy(BaseStrategy):
         opposing = scores[opposite]
         alignment = dominant / max(dominant + opposing, 0.0001)
         strength = min(1.0, dominant / max(total_signal_weight, 1.0))
-        conflict_penalty = min(0.2, opposing / max(dominant + opposing, 0.0001) * 0.25)
-        confidence = self._clip_confidence(0.45 + alignment * 0.35 + strength * 0.18 - conflict_penalty)
+        conflict_penalty = min(self.comb_conflict_max_penalty, opposing / max(dominant + opposing, 0.0001) * self.comb_conflict_ratio_multiplier)
+        confidence = self._clip_confidence(self.comb_base_confidence + alignment * self.comb_alignment_weight + strength * self.comb_strength_weight - conflict_penalty)
 
         if entry_candidates[direction]:
             weighted_sum = sum(price * weight for price, weight in entry_candidates[direction])
@@ -411,19 +467,29 @@ class HybridStrategy(BaseStrategy):
             "direction_scores": scores,
         }
 
-    def _hold_recommendation(self, timeframe_name, role, direction, confidence, atr, current_price, best_entry, style):
+    def _hold_recommendation(
+        self,
+        timeframe_name: str,
+        role: str,
+        direction: str,
+        confidence: float,
+        atr: float,
+        current_price: float,
+        best_entry: float,
+        style: str
+    ) -> str:
         distance_pct = abs(current_price - best_entry) / max(current_price, 1) * 100
         if style == "swing" or role == "trend" or timeframe_name in ("H4", "D1") or confidence >= 0.86:
             return f"Long hold bias ({timeframe_name}): structural/trend context is strong; trail after 1R and reassess on H1/H4 closes."
         if style == "scalp" or role == "entry" or timeframe_name in ("M1", "M5", "M15", "M30"):
-            if distance_pct <= 0.08:
+            if distance_pct <= self.hold_scalp_proximity_pct:
                 return f"Short hold/scalp ({timeframe_name}): entry is close; target quick liquidity/5-15 dollar movement and exit if momentum fades."
             return f"Wait-for-entry ({timeframe_name}): price is {distance_pct:.2f}% away from the ideal zone."
-        if atr / max(current_price, 1) * 100 > 0.35:
+        if atr / max(current_price, 1) * 100 > self.hold_atr_volatility_pct:
             return f"Medium hold ({timeframe_name}): volatility is high; reduce hold time or wait for cleaner retest."
         return f"Medium hold ({timeframe_name}): signal timeframe is balanced; reassess every 1 minute."
 
-    def _risk_plan(self, style, direction, best_entry, sl, tp, atr):
+    def _risk_plan(self, style: str, direction: str, best_entry: float, sl: Optional[float], tp: Optional[float], atr: float) -> Dict[str, Any]:
         risk_cfg = self.params.get("risk", {})
         risk_pct = min(float(risk_cfg.get("risk_per_trade_pct", 1.0)), float(risk_cfg.get("max_risk_per_trade_pct", 2.0)))
         stop_distance = abs(best_entry - sl) if sl is not None else 0.0
@@ -446,16 +512,16 @@ class HybridStrategy(BaseStrategy):
             ),
         }
 
-    def calculate_macd(self, prices):
+    def calculate_macd(self, prices: np.ndarray) -> Tuple[float, float, float]:
         params = self.params.get("macd_params", [12, 26, 9])
         fast = pd.Series(prices).ewm(span=params[0], adjust=False).mean()
         slow = pd.Series(prices).ewm(span=params[1], adjust=False).mean()
         macd = fast - slow
         signal = macd.ewm(span=params[2], adjust=False).mean()
         hist = macd - signal
-        return macd.iloc[-1], signal.iloc[-1], hist.iloc[-1]
+        return float(macd.iloc[-1]), float(signal.iloc[-1]), float(hist.iloc[-1])
 
-    def _fibonacci_result(self, current_price):
+    def _fibonacci_result(self, current_price: float) -> Dict[str, Any]:
         fib_cfg = self.params.get("fib_levels", {})
         low = fib_cfg.get("anchor_low", 4402)
         high = fib_cfg.get("anchor_high", 5598)
@@ -468,21 +534,20 @@ class HybridStrategy(BaseStrategy):
             "78.6%": high - 0.786 * diff
         }
         targets = fib_cfg.get("targets", {})
-        
-        # Check proximity to key strategic levels from the PDF
+
         nearest_level = min(targets.items(), key=lambda x: abs(current_price - x[1]))
-        tolerance = current_price * 0.0015
-        
+        tolerance = current_price * self.fib_proximity_tolerance_pct
+
         bias = "NEUTRAL"
         confidence = 0.0
         if abs(current_price - targets.get("primary_support", 5141)) <= tolerance:
-            bias, confidence = "BUY", 0.68
+            bias, confidence = "BUY", self.fib_primary_support_confidence
         elif abs(current_price - targets.get("psych_zone", 5000)) <= tolerance:
-            bias, confidence = "BUY", 0.65
+            bias, confidence = "BUY", self.fib_psych_zone_confidence
         elif abs(current_price - targets.get("key_support_s1", 4645)) <= tolerance:
-            bias, confidence = "BUY", 0.72
+            bias, confidence = "BUY", self.fib_key_support_confidence
         elif abs(current_price - targets.get("breakout_trigger", 4760)) <= tolerance:
-            bias, confidence = "BUY" if current_price > targets["breakout_trigger"] else "SELL", 0.62
+            bias, confidence = "BUY" if current_price > targets["breakout_trigger"] else "SELL", self.fib_breakout_confidence
 
         return {
             "pattern": "Fibonacci",
@@ -493,7 +558,7 @@ class HybridStrategy(BaseStrategy):
             "reasoning": f"Price near strategic Fibonacci level: {nearest_level[0]} ({nearest_level[1]:.2f})" if confidence > 0 else "No strategic Fib level nearby"
         }
 
-    def analyze(self, df, timeframe_name=None, role="signal"):
+    def analyze(self, df: pd.DataFrame, timeframe_name: Optional[str] = None, role: str = "signal") -> Dict[str, Any]:
         timeframe = timeframe_name or DEFAULT_TIMEFRAME_NAME
         style = self._strategy_style(timeframe, role)
         close_prices = df["close"].astype(float).values
@@ -511,22 +576,20 @@ class HybridStrategy(BaseStrategy):
             "Fibonacci": self._fibonacci_result(current_price)
         }
         indicator_result = self._institutional_indicator_result(df)
-        
-        # Momentum check with MACD
+
         macd, macd_sig, macd_hist = self.calculate_macd(close_prices)
-        momentum_confirm = (macd_hist > 0 and macd > macd_sig) # Bullish momentum
-        
+        momentum_confirm = (macd_hist > 0 and macd > macd_sig)
+
         technique_results["InstitutionalIndicators"] = indicator_result
         technique_results.update(pattern_result["details"])
 
         combined = self._combine_techniques(current_price, atr, technique_results, role)
-        
-        # Boost confidence if MACD confirms the direction
+
         if combined["direction"] == "BUY" and momentum_confirm:
-            combined["confidence"] = self._clip_confidence(combined["confidence"] + 0.05)
+            combined["confidence"] = self._clip_confidence(combined["confidence"] + self.macd_confirm_boost)
             combined["reasoning"] += " | MACD confirms bullish momentum"
         elif combined["direction"] == "SELL" and not momentum_confirm:
-            combined["confidence"] = self._clip_confidence(combined["confidence"] + 0.05)
+            combined["confidence"] = self._clip_confidence(combined["confidence"] + self.macd_confirm_boost)
             combined["reasoning"] += " | MACD confirms bearish momentum"
 
         combined = self._apply_context_adjustments(combined, current_price, atr, role, timeframe, indicator_result)
@@ -561,7 +624,7 @@ class HybridStrategy(BaseStrategy):
                 sl = best_entry + sl_distance
                 tp = best_entry - tp_distance
 
-        zone_width = max(atr * 0.25 if atr > 0 else point_val * 50, point_val * 50)
+        zone_width = max(atr * self.entry_zone_atr_multiplier if atr > 0 else point_val * self.entry_zone_min_points, point_val * self.entry_zone_min_points)
         entry_zone = (best_entry - zone_width, best_entry + zone_width)
         hold_recommendation = self._hold_recommendation(timeframe, role, direction, confidence, atr, current_price, best_entry, style)
         risk_plan = self._risk_plan(style, direction, best_entry, sl, tp, atr)
@@ -594,7 +657,7 @@ class HybridStrategy(BaseStrategy):
 class SMCStrategy(BaseStrategy):
     """Compatibility wrapper for older imports."""
 
-    def analyze(self, df, timeframe_name=None, role="entry"):
+    def analyze(self, df: pd.DataFrame, timeframe_name: Optional[str] = None, role: str = "entry") -> Dict[str, Any]:
         recognizer = ChartPatternRecognizer()
         result = recognizer.detect_smc(df)
         price = float(df["close"].iloc[-1])
